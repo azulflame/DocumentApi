@@ -1,18 +1,19 @@
 package me.toddbensmiller.documentapi.service;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.transaction.Transactional;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import me.toddbensmiller.documentapi.entity.Document;
+import me.toddbensmiller.documentapi.entity.PartialDocument;
 import me.toddbensmiller.documentapi.entity.Word;
 import me.toddbensmiller.documentapi.parse.Stemmer;
-import me.toddbensmiller.documentapi.parse.Stopwords;
 import me.toddbensmiller.documentapi.repository.DocumentRepository;
 
 @Service
@@ -31,63 +32,91 @@ public class DocumentService {
         this.wordService = wordService;
     }
 
+    /**
+     * Return a document with a specific ID
+     * 
+     * @param id The document ID to fetch
+     * @return the document with that ID, if one exists
+     */
     public Document getDocument(Long id) {
         return repo.findById(id).get();
     }
 
-    public void addProcessedDocument(Document d) {
-        if (d.getText() == null || d.getText().length() == 0 || d.getTitle() == null || d.getTitle().length() == 0) {
+    /**
+     * Processes and returns a document where relations have already been processed.
+     * 
+     * @param doc A preprocessed Document to add to the database
+     * @return The document stored in the database
+     */
+    public Document addProcessedDocument(Document doc) {
+        if (doc.getText() == null || doc.getText().length() == 0 || doc.getTitle() == null
+                || doc.getTitle().length() == 0) {
             throw new IllegalStateException("Must have a title and a text body");
         }
-        repo.save(d);
-    }
-
-    public void addDocument(Document d) {
-        // require document title and text to be present
-        if (d.getText() == null || d.getText().length() == 0 || d.getTitle() == null || d.getTitle().length() == 0) {
-            throw new IllegalStateException("Must have a title and a text body");
-        }
-        List<Document> matchingTitles = repo.findByTitle(d.getTitle());
-        matchingTitles.forEach(document -> {
-            if (document.getText().equals(d.getText())) {
-                throw new IllegalStateException("Document matches an existing document");
+        List<Document> matchingTitles = repo.findByTitle(doc.getTitle());
+        for (Document document : matchingTitles) {
+            if (document.getText().equals(doc.getText())) {
+                return document;
             }
-        });
-        d.setContainedInText(getWordsFromText(d.getText()));
-        d.setContainedInTitle(getWordsFromText(d.getTitle()));
-        repo.save(d);
+        }
+        return repo.save(doc);
     }
 
+    /**
+     * Process and add a Document to the database.
+     * Requires the text and title to be populated.
+     * If an existing Document is in the database with that title and text, return
+     * that document instead
+     * 
+     * @param doc A document to process and save
+     * @return The document stored or found in the database
+     */
+    public Document addDocument(Document doc) {
+        // require document title and text to be present
+        if (doc.getText() == null || doc.getText().length() == 0 || doc.getTitle() == null
+                || doc.getTitle().length() == 0) {
+            throw new IllegalStateException("Must have a title and a text body");
+        }
+        List<Document> matchingTitles = repo.findByTitle(doc.getTitle());
+        for (Document document : matchingTitles) {
+            if (document.getText().equals(doc.getText())) {
+                return document;
+            }
+        }
+        doc.setContainedInText(getWordsFromText(doc.getText()));
+        doc.setContainedInTitle(getWordsFromText(doc.getTitle()));
+        return repo.save(doc);
+    }
+
+    /**
+     * Return a list of all documents.
+     * This will likely be very slow. Recommended to not use.
+     * 
+     * @return A List of all documents in the database
+     */
     public List<Document> getAll() {
         return repo.findAll();
     }
 
+    /**
+     * Returns a Set containing unique Word entities, found in a body of text
+     * 
+     * @param text A body of text
+     * @return The Set of unique words
+     */
     public Set<Word> getWordsFromText(String text) {
-        return getStemsFromText(text).stream()
+        return getImperitiveStemsFromText(text).stream()
                 .map(x -> wordService.saveWord(x))
                 .collect(Collectors.toSet());
     }
 
-    public Set<String> getStemsFromText(String text) {
-        return Arrays.stream(
-                text
-                        // normalize data, restrict to chars and spaces
-                        .toLowerCase()
-                        .chars()
-                        .filter(x -> keep.contains((char) x))
-                        .mapToObj(x -> "" + (char) x)
-                        .collect(Collectors.joining())
-                        // split into words
-                        .split(" "))
-                // remove stopwords
-                .filter(x -> !Stopwords.get().contains(x))
-                // stem word, save as a Word.
-                .map(x -> stemmer.stemWord((String) x))
-                // save as a Set to remove duplicates
-                .collect(Collectors.toSet());
-    }
-
-    // the above method, but much faster
+    /**
+     * Returns a Set object containing the unique stems found in the supplied body
+     * of text. Currently only works with the english language.
+     * 
+     * @param text A body of text
+     * @return The Set of unique stems
+     */
     public Set<String> getImperitiveStemsFromText(String text) {
         String toLowercase = text.toLowerCase();
         StringBuilder filtered = new StringBuilder(toLowercase.length());
@@ -110,5 +139,13 @@ public class DocumentService {
 
     public void saveAll(Set<Document> docs) {
         repo.saveAll(docs);
+    }
+
+    @Transactional
+    public List<PartialDocument> getFromQuery(String query) {
+        Set<Word> words = getWordsFromText(query);
+        Set<Long> ids = new HashSet<>(repo.findAllByTextWords(words, Long.valueOf("" + words.size())));
+        return ids.parallelStream().map(x -> new PartialDocument(x, repo.findTitleById(x)))
+                .collect(Collectors.toList());
     }
 }
