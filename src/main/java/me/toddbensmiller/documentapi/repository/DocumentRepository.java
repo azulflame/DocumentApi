@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import me.toddbensmiller.documentapi.entity.Document;
+import me.toddbensmiller.documentapi.entity.PartialDocument;
 import me.toddbensmiller.documentapi.entity.Word;
 
 public interface DocumentRepository extends JpaRepository<Document, Long> {
@@ -17,4 +18,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     @Query("SELECT d.title FROM Document d WHERE d.id = :id")
     public String findTitleById(Long id);
+
+    @Query("SELECT NEW me.toddbensmiller.documentapi.entity.PartialDocument(d.id, d.title) FROM Document d WHERE d.id IN (:ids)")
+    public List<PartialDocument> findTitlesById(Set<Long> ids);
 }

@@ -1,5 +1,11 @@
 package me.toddbensmiller.documentapi.service;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -7,6 +13,8 @@ import java.util.stream.Collectors;
 
 import javax.transaction.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +29,8 @@ public class DocumentService {
     private DocumentRepository repo;
     private WordService wordService;
     private Stemmer stemmer;
+
+    private static Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     private static final Set<Character> keep = new HashSet<>(
             "abcdefghijklmnopqrstuvwxyz ".chars().mapToObj(c -> (char) c).collect(Collectors.toList()));
@@ -39,33 +49,15 @@ public class DocumentService {
      * @return the document with that ID, if one exists
      */
     public Document getDocument(Long id) {
-        return repo.findById(id).get();
+        Document d = repo.findById(id).get();
+        d.setText(getRealText(d));
+        return d;
     }
 
     /**
-     * Processes and returns a document where relations have already been processed.
-     * 
-     * @param doc A preprocessed Document to add to the database
-     * @return The document stored in the database
-     */
-    public Document addProcessedDocument(Document doc) {
-        if (doc.getText() == null || doc.getText().length() == 0 || doc.getTitle() == null
-                || doc.getTitle().length() == 0) {
-            throw new IllegalStateException("Must have a title and a text body");
-        }
-        List<Document> matchingTitles = repo.findByTitle(doc.getTitle());
-        for (Document document : matchingTitles) {
-            if (document.getText().equals(doc.getText())) {
-                return document;
-            }
-        }
-        return repo.save(doc);
-    }
-
-    /**
-     * Process and add a Document to the database.
+     * Process and add a @Document to the database.
      * Requires the text and title to be populated.
-     * If an existing Document is in the database with that title and text, return
+     * If an existing @Document is in the database with that title and text, return
      * that document instead
      * 
      * @param doc A document to process and save
@@ -77,14 +69,20 @@ public class DocumentService {
                 || doc.getTitle().length() == 0) {
             throw new IllegalStateException("Must have a title and a text body");
         }
+        doc.setContainedInText(getWordsFromText(doc.getText()));
+        doc.setContainedInTitle(getWordsFromText(doc.getTitle()));
+        // Store the data as a file instead of storing it in-db
         List<Document> matchingTitles = repo.findByTitle(doc.getTitle());
         for (Document document : matchingTitles) {
             if (document.getText().equals(doc.getText())) {
                 return document;
             }
         }
-        doc.setContainedInText(getWordsFromText(doc.getText()));
-        doc.setContainedInTitle(getWordsFromText(doc.getTitle()));
+        String oldText = doc.getText();
+        doc.setText("placeholder");
+        doc = repo.save(doc);
+        doc.setText(oldText);
+        doc.setText(storeRealText(doc));
         return repo.save(doc);
     }
 
@@ -95,7 +93,12 @@ public class DocumentService {
      * @return A List of all documents in the database
      */
     public List<Document> getAll() {
-        return repo.findAll();
+        List<Document> results = repo.findAll();
+        results.parallelStream().map(x -> {
+            x.setText(getRealText(x));
+            return x;
+        });
+        return results;
     }
 
     /**
@@ -145,7 +148,37 @@ public class DocumentService {
     public List<PartialDocument> getFromQuery(String query) {
         Set<Word> words = getWordsFromText(query);
         Set<Long> ids = new HashSet<>(repo.findAllByTextWords(words, Long.valueOf("" + words.size())));
-        return ids.parallelStream().map(x -> new PartialDocument(x, repo.findTitleById(x)))
-                .collect(Collectors.toList());
+        return repo.findTitlesById(ids);
+    }
+
+    private String getRealText(Document d) {
+        StringBuilder builder = new StringBuilder();
+        if (d.getText().endsWith(".txt")) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(d.getText()))) {
+                while (reader.ready()) {
+                    builder.append(reader.readLine());
+                }
+            } catch (FileNotFoundException ex) {
+                return d.getText();
+            } catch (IOException ex) {
+                return d.getText();
+            }
+        }
+        return builder.toString();
+    }
+
+    private String storeRealText(Document d) {
+        if (d.getText().endsWith(".txt")) {
+            return d.getText();
+        }
+        String filename = "/home/todd/.documents/" + d.getId() + ".txt";
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+            writer.write(d.getText());
+        } catch (IOException ex) {
+            log.error("IOException thrown in storeRealText");
+            log.error(ex.getMessage());
+            return null;
+        }
+        return filename;
     }
 }
