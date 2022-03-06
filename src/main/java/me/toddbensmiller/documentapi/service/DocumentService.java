@@ -53,8 +53,8 @@ public class DocumentService {
                 throw new IllegalStateException("Document matches an existing document");
             }
         });
-        // d.setContainedInText(getWordsFromText(d.getText()));
-        // d.setContainedInTitle(getWordsFromText(d.getTitle()));
+        d.setContainedInText(getWordsFromText(d.getText()));
+        d.setContainedInTitle(getWordsFromText(d.getTitle()));
         repo.save(d);
     }
 
@@ -87,6 +87,7 @@ public class DocumentService {
                 .collect(Collectors.toSet());
     }
 
+    // the above method, but much faster
     public Set<String> getImperitiveStemsFromText(String text) {
         String toLowercase = text.toLowerCase();
         StringBuilder filtered = new StringBuilder(toLowercase.length());

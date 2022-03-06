@@ -13,7 +13,12 @@ import javax.persistence.Table;
 
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 
 @Entity
 @NoArgsConstructor
