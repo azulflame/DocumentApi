@@ -186,17 +186,12 @@ public class DocumentService {
     public List<PartialDocument> getFromQuery(String query) {
         Set<String> words = getImperitiveStemsFromText(query);
         Set<Long> ids = wordService.getIds(words);
-        List<TextRelation> texts = textRelationRepository.findAllByWordId(ids);
-        List<TitleRelation> titles = titleRelationRepository.findAllByWordId(ids);
-        Set<Long> docIds = new HashSet<>();
-        for (TextRelation tr : texts) {
-            docIds.add(tr.getDocId());
+        List<Document> docs = repo.partialById(ids, (long) words.size());
+        List<PartialDocument> partDocs = new ArrayList<>();
+        for (Document d : docs) {
+            partDocs.add(new PartialDocument(d.getId(), d.getTitle()));
         }
-        for (TitleRelation tr : titles) {
-            docIds.add(tr.getDocId());
-        }
-        List<PartialDocument> docs = repo.partialById(docIds);
-        return docs;
+        return partDocs;
     }
 
     public String getRealText(Document d) {

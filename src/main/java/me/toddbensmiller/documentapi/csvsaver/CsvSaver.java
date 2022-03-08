@@ -26,25 +26,25 @@ public class CsvSaver<T extends CsvSavable> {
     private String dataline;
 
     public CsvSaver(String filename, Long beginningIndex) {
+        hasData = false;
+        this.filename = filename;
+        this.index = beginningIndex;
         try {
-            hasData = false;
             writer = new BufferedWriter(new FileWriter(filename));
-            this.filename = filename;
-            this.index = beginningIndex;
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Error opening file " + filename);
         }
     }
 
     public void add(T item) {
+        hasData = true;
+        item.setId(index++);
+        this.dataline = item.getSqlString();
         try {
-            hasData = true;
-            item.setId(index++);
-            this.dataline = item.getSqlString();
             writer.write(item.toCsvLine());
             writer.newLine();
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Error printing to file " + filename);
         }
     }
 
@@ -73,11 +73,10 @@ public class CsvSaver<T extends CsvSavable> {
             log.info("Inserted " + rowsAffected + " rows via COPY");
         } catch (SQLException e) {
             log.info("failed to upload csv");
-            log.error(e.getMessage());
         } catch (FileNotFoundException e) {
             log.error("Unable to open local file " + filename);
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Error handling " + filename);
         }
         log.info("Exiting save");
     }
