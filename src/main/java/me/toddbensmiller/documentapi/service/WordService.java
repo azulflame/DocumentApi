@@ -1,5 +1,7 @@
 package me.toddbensmiller.documentapi.service;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -42,7 +44,7 @@ public class WordService {
      * @param words A Set of words to save
      * @return a List of words saved
      */
-    public List<Word> saveAll(Set<Word> words) {
+    public List<Word> saveAll(Collection<Word> words) {
         return repo.saveAll(words);
     }
 
@@ -73,5 +75,14 @@ public class WordService {
      */
     public Word saveWord(String stem) {
         return saveWord(new Word(stem));
+    }
+
+    public Set<Long> getIds(Set<String> stems) {
+        List<Word> words = repo.findAllByStem(stems);
+        Set<Long> ids = new HashSet<>();
+        for (Word w : words) {
+            ids.add(w.getId());
+        }
+        return ids;
     }
 }

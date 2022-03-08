@@ -7,6 +7,8 @@ import java.io.FileWriter;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -20,26 +22,34 @@ import org.springframework.stereotype.Service;
 
 import me.toddbensmiller.documentapi.entity.Document;
 import me.toddbensmiller.documentapi.entity.PartialDocument;
+import me.toddbensmiller.documentapi.entity.TextRelation;
+import me.toddbensmiller.documentapi.entity.TitleRelation;
 import me.toddbensmiller.documentapi.entity.Word;
 import me.toddbensmiller.documentapi.parse.Stemmer;
 import me.toddbensmiller.documentapi.repository.DocumentRepository;
+import me.toddbensmiller.documentapi.repository.TextRelationRepository;
+import me.toddbensmiller.documentapi.repository.TitleRelationRepository;
 
 @Service
 public class DocumentService {
     private DocumentRepository repo;
     private WordService wordService;
     private Stemmer stemmer;
-
+    private TextRelationRepository textRelationRepository;
+    private TitleRelationRepository titleRelationRepository;
     private static Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     private static final Set<Character> keep = new HashSet<>(
             "abcdefghijklmnopqrstuvwxyz ".chars().mapToObj(c -> (char) c).collect(Collectors.toList()));
 
     @Autowired
-    public DocumentService(DocumentRepository documentRepository, Stemmer stemmer, WordService wordService) {
+    public DocumentService(DocumentRepository documentRepository, Stemmer stemmer, WordService wordService,
+            TextRelationRepository textRelationRepository, TitleRelationRepository titleRelationRepository) {
         repo = documentRepository;
         this.stemmer = stemmer;
         this.wordService = wordService;
+        this.titleRelationRepository = titleRelationRepository;
+        this.textRelationRepository = textRelationRepository;
     }
 
     /**
@@ -64,13 +74,37 @@ public class DocumentService {
      * @return The document stored or found in the database
      */
     public Document addDocument(Document doc) {
+        Document d = addDocumentNoRelations(doc);
+        String text = getRealText(d);
+        Set<Word> textWords = getWordsFromText(text);
+        Set<Word> titleWords = getWordsFromText(d.getTitle());
+        Set<TextRelation> textRelations = new HashSet<>();
+        Set<TitleRelation> titleRelations = new HashSet<>();
+        for (Word w : textWords) {
+            TextRelation relation = new TextRelation(w.getId(), d.getId());
+            textRelations.add(relation);
+        }
+        for (Word w : titleWords) {
+            TitleRelation relation = new TitleRelation(w.getId(), d.getId());
+            titleRelations.add(relation);
+        }
+
+        titleRelationRepository.saveAll(titleRelations);
+        textRelationRepository.saveAll(textRelations);
+
+        return d;
+    }
+
+    public List<Document> addDocumentsNoRelations(Collection<Document> docs) {
+        return new ArrayList<>(docs);
+    }
+
+    public Document addDocumentNoRelations(Document doc) {
         // require document title and text to be present
         if (doc.getText() == null || doc.getText().length() == 0 || doc.getTitle() == null
                 || doc.getTitle().length() == 0) {
             throw new IllegalStateException("Must have a title and a text body");
         }
-        doc.setContainedInText(getWordsFromText(doc.getText()));
-        doc.setContainedInTitle(getWordsFromText(doc.getTitle()));
         // Store the data as a file instead of storing it in-db
         List<Document> matchingTitles = repo.findByTitle(doc.getTitle());
         for (Document document : matchingTitles) {
@@ -108,9 +142,12 @@ public class DocumentService {
      * @return The Set of unique words
      */
     public Set<Word> getWordsFromText(String text) {
-        return getImperitiveStemsFromText(text).stream()
-                .map(x -> wordService.saveWord(x))
-                .collect(Collectors.toSet());
+        Set<Word> words = new HashSet<>();
+        Set<String> stems = getImperitiveStemsFromText(text);
+        for (String stem : stems) {
+            words.add(wordService.saveWord(stem));
+        }
+        return words;
     }
 
     /**
@@ -140,18 +177,29 @@ public class DocumentService {
         return stemmed;
     }
 
-    public void saveAll(Set<Document> docs) {
-        repo.saveAll(docs);
+    public List<Document> saveAll(List<Document> docs) {
+        return repo.saveAll(docs);
     }
 
     @Transactional
+    // something breaks in here
     public List<PartialDocument> getFromQuery(String query) {
-        Set<Word> words = getWordsFromText(query);
-        Set<Long> ids = new HashSet<>(repo.findAllByTextWords(words, Long.valueOf("" + words.size())));
-        return repo.findTitlesById(ids);
+        Set<String> words = getImperitiveStemsFromText(query);
+        Set<Long> ids = wordService.getIds(words);
+        List<TextRelation> texts = textRelationRepository.findAllByWordId(ids);
+        List<TitleRelation> titles = titleRelationRepository.findAllByWordId(ids);
+        Set<Long> docIds = new HashSet<>();
+        for (TextRelation tr : texts) {
+            docIds.add(tr.getDocId());
+        }
+        for (TitleRelation tr : titles) {
+            docIds.add(tr.getDocId());
+        }
+        List<PartialDocument> docs = repo.partialById(docIds);
+        return docs;
     }
 
-    private String getRealText(Document d) {
+    public String getRealText(Document d) {
         StringBuilder builder = new StringBuilder();
         if (d.getText().endsWith(".txt")) {
             try (BufferedReader reader = new BufferedReader(new FileReader(d.getText()))) {
@@ -167,7 +215,7 @@ public class DocumentService {
         return builder.toString();
     }
 
-    private String storeRealText(Document d) {
+    public String storeRealText(Document d) {
         if (d.getText().endsWith(".txt")) {
             return d.getText();
         }
@@ -180,5 +228,21 @@ public class DocumentService {
             return null;
         }
         return filename;
+    }
+
+    public Document storeRealText(Document d, int index) {
+        if (d.getText().endsWith(".txt")) {
+            return d;
+        }
+        String filename = "/home/todd/.documents/" + index + ".txt";
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+            writer.write(d.getText());
+            d.setText(filename);
+        } catch (IOException ex) {
+            log.error("IOException thrown in storeRealText");
+            log.error(ex.getMessage());
+            return null;
+        }
+        return d;
     }
 }

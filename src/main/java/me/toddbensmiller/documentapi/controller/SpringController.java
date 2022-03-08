@@ -36,9 +36,7 @@ public class SpringController {
 
     @PostMapping("/document")
     public Long createDocument(@RequestParam("title") String title, @RequestParam("body") String text) {
-        Document d = new Document();
-        d.setTitle(title);
-        d.setText(text);
+        Document d = new Document(title, text);
         return docService.addDocument(d).getId();
     }
 }
