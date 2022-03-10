@@ -78,5 +78,9 @@ Submit a document to the database. It will return the saved document.
 #### Response
 
 ```
-
+{
+    "id": 19331052,
+    "title": "document title here",
+    "text": "document text here"
+}
 ```
