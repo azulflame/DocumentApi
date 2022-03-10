@@ -9,6 +9,7 @@ This REST API allows you to query a set of documents to find relevant documents.
 
 - Java 8+
 - Gradle 6.8+
+- Postgres database
 
 ## Running
 
